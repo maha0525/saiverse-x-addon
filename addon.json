@@ -1,0 +1,112 @@
+{
+    "name": "saiverse-x-addon",
+    "display_name": "X (Twitter) 連携",
+    "description": "ペルソナを X (Twitter) アカウントに接続し、投稿・タイムライン閲覧・リプライ・メンション通知を可能にします。X Developer Portal で OAuth 2.0 アプリを作成し、Client ID / Client Secret を設定してください。",
+    "spell_description": "X (Twitter) に接続されています。タイムラインの閲覧やツイートの投稿ができます。",
+    "version": "0.1.0",
+    "params_schema": [
+        {
+            "key": "client_id",
+            "label": "X API Client ID",
+            "description": "X Developer Portal で発行された OAuth 2.0 Client ID。全ペルソナで共有されます (X Developer App は複数アカウントの認可を受け付ける設計のため)。",
+            "type": "text",
+            "placeholder": "xxxxxxxxxxxxxxxxxxxxx"
+        },
+        {
+            "key": "client_secret",
+            "label": "X API Client Secret",
+            "description": "X Developer Portal で発行された OAuth 2.0 Client Secret。Confidential Client 用。",
+            "type": "password"
+        },
+        {
+            "key": "skip_confirmation",
+            "label": "投稿前確認をスキップ",
+            "description": "有効にすると、投稿・リプライ前の確認ダイアログを表示しません。自動投稿用途で使用します。",
+            "type": "boolean",
+            "default": false,
+            "persona_configurable": true
+        },
+        {
+            "key": "polling_enabled",
+            "label": "ポーリングを有効化",
+            "description": "OFF にすると定期ポーリングを完全停止します。書き込み機能 (投稿・リプライ・タイムライン取得) は影響を受けません。",
+            "type": "boolean",
+            "default": true
+        },
+        {
+            "key": "polling_interval_seconds",
+            "label": "ポーリング間隔 (秒)",
+            "description": "定期ポーリングの実行間隔。デフォルトは24時間 (86400秒)。X API の従量課金を抑えたい場合は長めに設定してください。",
+            "type": "number",
+            "default": 86400
+        },
+        {
+            "key": "poll_mentions",
+            "label": "リプライ・メンションを監視",
+            "description": "自分宛のメンション/リプライを定期取得します。",
+            "type": "boolean",
+            "default": true
+        },
+        {
+            "key": "mentions_max_results",
+            "label": "メンション取得最大数",
+            "description": "1回のポーリング/スペル実行で取得するメンションの最大件数 (5-100)。",
+            "type": "number",
+            "default": 20
+        },
+        {
+            "key": "poll_followers",
+            "label": "新規フォロワーを監視",
+            "description": "前回ポーリング時点と比較して新たに増えたフォロワーを検出します。",
+            "type": "boolean",
+            "default": false
+        },
+        {
+            "key": "poll_engagement_count",
+            "label": "被いいね/リポスト件数を監視",
+            "description": "最新ポストの like_count / retweet_count の差分を検出します (誰がは取得しません)。1リクエストで両方取れるため低コストです。",
+            "type": "boolean",
+            "default": false
+        },
+        {
+            "key": "poll_likes_detail",
+            "label": "被いいねの「誰が」を監視",
+            "description": "件数が増えたツイートに対し liking_users を呼び、誰がいいねしたかまで取得します。コストは増えるので必要なときだけ ON にしてください。",
+            "type": "boolean",
+            "default": false
+        },
+        {
+            "key": "poll_retweets_detail",
+            "label": "被リポストの「誰が」を監視",
+            "description": "件数が増えたツイートに対し retweeted_by を呼び、誰がリツイートしたかまで取得します。",
+            "type": "boolean",
+            "default": false
+        },
+        {
+            "key": "tracked_recent_posts_count",
+            "label": "監視対象の最新ポスト数",
+            "description": "被いいね/被リポスト監視で対象とする最新ポストの件数 (5-100)。古いポストは監視対象外になります。",
+            "type": "number",
+            "default": 5
+        }
+    ],
+    "oauth_flows": [
+        {
+            "key": "x",
+            "label": "X アカウント連携",
+            "description": "ペルソナを X (Twitter) アカウントに接続します。連携後、ペルソナはこのアカウントから投稿できます。",
+            "provider": "oauth2_pkce",
+            "authorize_url": "https://x.com/i/oauth2/authorize",
+            "token_url": "https://api.x.com/2/oauth2/token",
+            "scopes": ["tweet.read", "tweet.write", "users.read", "offline.access"],
+            "client_id_param": "client_id",
+            "client_secret_param": "client_secret",
+            "result_mapping": {
+                "access_token": "x_access_token",
+                "refresh_token": "x_refresh_token",
+                "expires_at": "x_token_expires_at"
+            },
+            "post_authorize_handler": "x_handlers:fetch_user_info"
+        }
+    ]
+}
