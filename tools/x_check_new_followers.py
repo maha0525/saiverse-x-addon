@@ -22,9 +22,10 @@ for _p in (_LIB_DIR, _ADDON_ROOT):
 def x_check_new_followers() -> Tuple[str, ToolResult]:
     """Detect followers added since the previous snapshot.
 
-    First call only establishes the baseline (returns "no new followers")
-    and subsequent calls return only the delta. Snapshot is shared with
-    the polling integration.
+    On the first call, returns the **current full follower list** as the
+    initial snapshot (X API doesn't expose followed_at, so 24h filtering is
+    impossible). Subsequent calls return only the delta. Snapshot is shared
+    with the polling integration.
     """
     from integrations.polling import detect_new_followers  # type: ignore
 
@@ -33,31 +34,48 @@ def x_check_new_followers() -> Tuple[str, ToolResult]:
         return "[X新規フォロワー確認エラー] ペルソナコンテキストが設定されていません。", ToolResult(history_snippet=None)
 
     try:
-        new_followers = detect_new_followers(persona_id)
+        new_followers, is_first = detect_new_followers(persona_id)
     except Exception as exc:
         LOGGER.error("[x_check_new_followers] Unexpected error: %s", exc, exc_info=True)
         return f"[X新規フォロワー確認エラー] {exc}", ToolResult(history_snippet=None)
 
-    if not new_followers:
-        return "前回以降の新規フォロワーはいません。", ToolResult(history_snippet="[X新規フォロワー] 0名")
+    intro = ""
+    if is_first:
+        intro = (
+            "[初回スナップショット] X APIはフォロー日時を返さないため、"
+            "現在のフォロワー一覧を初回スナップショットとして表示します。"
+            "次回以降は前回以降の新規分のみを取得します。\n"
+        )
 
-    lines = [f"前回以降の新規フォロワー({len(new_followers)}名):"]
+    if not new_followers:
+        body = (
+            "現在フォロワーはいません。"
+            if is_first else "前回以降の新規フォロワーはいません。"
+        )
+        return intro + body, ToolResult(history_snippet="[X新規フォロワー] 0名")
+
+    header = (
+        f"現在のフォロワー({len(new_followers)}名):"
+        if is_first else f"前回以降の新規フォロワー({len(new_followers)}名):"
+    )
+    lines = [header]
     for f in new_followers:
         username = f.get("username", "")
         name = f.get("name", "")
         uid = f.get("id", "")
         lines.append(f"- @{username} ({name}) (id={uid})")
 
-    return "\n".join(lines), ToolResult(history_snippet=f"[X新規フォロワー] {len(new_followers)}名")
+    snippet_label = "[X現在のフォロワー]" if is_first else "[X新規フォロワー]"
+    return intro + "\n".join(lines), ToolResult(history_snippet=f"{snippet_label} {len(new_followers)}名")
 
 
 def schema() -> ToolSchema:
-    from x_lib.credentials import is_connected as _is_x_connected  # type: ignore
+    from x_lib.credentials import is_followers_monitoring_enabled  # type: ignore
     return ToolSchema(
         name="x_check_new_followers",
         description=(
             "X(Twitter)の新規フォロワーを取得します(前回スナップショットからの差分)。"
-            "初回呼び出しはベースラインを保存するだけで、新規通知はゼロになります。"
+            "初回呼び出しは現在のフォロワー一覧を返します(X APIがフォロー日時を返さないため)。"
             "定期ポーリングとフォロワーリストを共有します。"
         ),
         parameters={
@@ -69,5 +87,5 @@ def schema() -> ToolSchema:
         spell=True,
         spell_display_name="X新規フォロワー確認",
         spell_visible=True,
-        availability_check=_is_x_connected,
+        availability_check=is_followers_monitoring_enabled,
     )

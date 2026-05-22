@@ -83,3 +83,35 @@ def is_connected(persona_id: str) -> bool:
 
     params = get_params(ADDON_NAME, persona_id=persona_id)
     return bool(params.get("x_access_token") and params.get("x_user_id"))
+
+
+def _global_param(key: str, default: bool = False) -> bool:
+    """Read a global (addon-level) bool param. Used for spell visibility gates
+    so user can toggle high-cost spells off (e.g. follower monitoring) without
+    touching per-spell descriptions (= no system-prompt token waste, no
+    persona-facing money talk that pollutes the persona)."""
+    from saiverse.addon_config import get_params
+    params = get_params(ADDON_NAME)
+    val = params.get(key, default)
+    return bool(val)
+
+
+def is_followers_monitoring_enabled(persona_id: Optional[str]) -> bool:
+    """Spell gate for x_check_new_followers."""
+    if not persona_id or not is_connected(persona_id):
+        return False
+    return _global_param("poll_followers", False)
+
+
+def is_likes_monitoring_enabled(persona_id: Optional[str]) -> bool:
+    """Spell gate for x_check_post_likes (件数 or 誰がのいずれかが ON なら見える)."""
+    if not persona_id or not is_connected(persona_id):
+        return False
+    return _global_param("poll_engagement_count", False) or _global_param("poll_likes_detail", False)
+
+
+def is_retweets_monitoring_enabled(persona_id: Optional[str]) -> bool:
+    """Spell gate for x_check_post_retweets (件数 or 誰がのいずれかが ON なら見える)."""
+    if not persona_id or not is_connected(persona_id):
+        return False
+    return _global_param("poll_engagement_count", False) or _global_param("poll_retweets_detail", False)

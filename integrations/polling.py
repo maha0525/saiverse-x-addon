@@ -7,6 +7,19 @@ helpers below are also invoked by the manual spell tools so the
 
 Event payload shape — see TRIGGER_SCHEMAS[X_POLL_DETECTED] in
 ``phenomena/triggers.py`` for the canonical definition.
+
+**Initial snapshot policy** (per category):
+ - mentions: 初回はサーバー側 ``start_time = now - 24h`` で取得 (X API が
+   start_time をサポートしているため)。次回以降は ``since_id`` で差分。
+ - new_followers: 初回は現在の全フォロワーを返す (API は followed_at を
+   返さないので 24h 絞り不可。AI ペルソナのフォロワー数前提なら許容)。
+ - engagement: 初回は最新 N ツイートの **現在の** like_count/retweet_count
+   を「初回スナップショット時点の数」として返す (with_users が ON なら
+   liking_users / retweeted_by も全件取得する)。次回以降は差分。
+
+各 ``detect_*`` は ``is_first`` フラグを併せて返し、呼び出し側 (スペル/
+ポーリング) は冒頭に「初回スナップショット取得しました。次回以降は前回
+からの増分のみ通知します」のアナウンスを付ける責務を持つ。
 """
 
 from __future__ import annotations
@@ -15,8 +28,9 @@ import json
 import logging
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 
 from phenomena.triggers import TriggerEvent, TriggerType
 from saiverse.integrations.base import BaseIntegration
@@ -55,12 +69,16 @@ def _persona_params(persona_id: str) -> Dict[str, Any]:
 # Per-category detection helpers (also used directly by spells)
 # ---------------------------------------------------------------------------
 
-def detect_mentions(persona_id: str, max_results: int = 20) -> List[Dict[str, Any]]:
+def detect_mentions(persona_id: str, max_results: int = 20) -> Tuple[List[Dict[str, Any]], bool]:
     """Fetch mentions newer than the stored ``since_id`` and advance the cursor.
 
-    Returns the list of mention dicts (each with id, text, author_username,
-    author_name, created_at). Empty list if no creds, no new mentions, or
-    on API error (errors are logged).
+    Returns ``(mentions, is_first)``:
+      - mentions: list of mention dicts (id, text, author_username, author_name, created_at)
+      - is_first: True if this was the initial snapshot (no since_id stored yet)
+
+    On the initial call, ``start_time = now - 24h`` is sent to backfill recent
+    mentions instead of returning an empty list. Subsequent calls use ``since_id``
+    for delta detection. Empty list on no creds / no mentions / API error.
     """
     from x_lib.credentials import load_credentials  # type: ignore
     from x_lib.client import read_mentions, XAPIError  # type: ignore
@@ -68,23 +86,27 @@ def detect_mentions(persona_id: str, max_results: int = 20) -> List[Dict[str, An
 
     creds = load_credentials(persona_id)
     if creds is None:
-        return []
+        return [], False
 
     section = get_section(persona_id, "mentions")
     since_id = section.get("last_seen_id")
+    is_first = since_id is None
 
-    try:
-        mentions = read_mentions(creds, max_results=max_results, since_id=since_id)
-    except XAPIError as exc:
-        LOGGER.warning(
-            "[XPolling] mentions API error for %s: %s (status %d)",
-            persona_id, exc.body, exc.status_code,
+    start_time: Optional[str] = None
+    if is_first:
+        start_time = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
         )
-        return []
 
-    if not mentions:
-        return []
+    # API エラーは raise する。空 list で隠蔽すると呼び出し側で「ヒット 0 件」と
+    # 区別がつかず、誤った "no new mentions" 表示や initial flag のロストにつながる。
+    mentions = read_mentions(
+        creds, max_results=max_results, since_id=since_id, start_time=start_time,
+    )
 
+    # メンションを 1 件でも取れた時のみ cursor を進める。0 件のままなら
+    # is_first = True を維持して次回も 24h backfill (= ポーリング間隔と同じ)。
+    # 1 件でも来たら以降は since_id ベースの差分検出に移る。
     max_id: Optional[str] = since_id
     for m in mentions:
         tid = m.get("id")
@@ -93,15 +115,19 @@ def detect_mentions(persona_id: str, max_results: int = 20) -> List[Dict[str, An
     if max_id and max_id != since_id:
         update_section(persona_id, "mentions", {"last_seen_id": max_id})
 
-    return mentions
+    return mentions, is_first
 
 
-def detect_new_followers(persona_id: str) -> List[Dict[str, Any]]:
+def detect_new_followers(persona_id: str) -> Tuple[List[Dict[str, Any]], bool]:
     """Detect followers who appeared since the previous snapshot.
 
-    First call only establishes the baseline (returns []). Subsequent calls
-    return the set difference between the current follower list and the
-    stored ``known_follower_ids``.
+    Returns ``(followers, is_first)``:
+      - followers: 初回は **現在の全フォロワー一覧**、次回以降は新規分のみ
+      - is_first: True if this was the initial snapshot (no known_ids stored yet)
+
+    X API は ``followed_at`` を返さないので「24h 以内にフォローした人」で
+    絞ることはできない。代わりに初回は全件を返す (内部 API call は同じく
+    1 ペルソナ 1 回なのでコスト変わらず)。
     """
     from x_lib.credentials import load_credentials  # type: ignore
     from x_lib.client import get_all_followers, XAPIError  # type: ignore
@@ -109,33 +135,27 @@ def detect_new_followers(persona_id: str) -> List[Dict[str, Any]]:
 
     creds = load_credentials(persona_id)
     if creds is None:
-        return []
+        return [], False
 
     section = get_section(persona_id, "followers")
     is_first = not bool(section)
     known_ids = set(section.get("known_follower_ids") or [])
 
-    try:
-        followers = get_all_followers(creds.x_user_id, creds)
-    except XAPIError as exc:
-        LOGGER.warning(
-            "[XPolling] followers API error for %s: %s (status %d)",
-            persona_id, exc.body, exc.status_code,
-        )
-        return []
+    # API エラーは raise する (誤った baseline 確立や初回フラグのロストを防ぐ)
+    followers = get_all_followers(creds.x_user_id, creds)
 
     current_ids = {f.get("id") for f in followers if f.get("id")}
     update_section(persona_id, "followers", {"known_follower_ids": list(current_ids)})
 
     if is_first:
         LOGGER.info(
-            "[XPolling] First follower snapshot for %s: %d followers (baseline only)",
+            "[XPolling] First follower snapshot for %s: %d followers (returning all as initial)",
             persona_id, len(current_ids),
         )
-        return []
+        return followers, True
 
     new_ids = current_ids - known_ids
-    return [f for f in followers if f.get("id") in new_ids]
+    return [f for f in followers if f.get("id") in new_ids], False
 
 
 def detect_engagement(
@@ -143,18 +163,20 @@ def detect_engagement(
     tracked_recent_posts_count: int = 5,
     with_like_users: bool = False,
     with_retweet_users: bool = False,
-) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], bool]:
     """Detect like/retweet count growth on the persona's most recent posts.
 
-    Returns ``(engagement_changes, new_likes, new_retweets)``:
-      - ``engagement_changes``: per-tweet count delta (always populated when
-        a delta is detected, regardless of with_*_users flags)
-      - ``new_likes``: per-tweet liking_users payload (only when
-        with_like_users=True AND likes increased)
-      - ``new_retweets``: per-tweet retweeted_by payload (only when
-        with_retweet_users=True AND retweets increased)
+    Returns ``(engagement_changes, new_likes, new_retweets, is_first)``:
+      - ``engagement_changes``: per-tweet count delta (初回は old=0 として現在の数を返す)
+      - ``new_likes``: per-tweet liking_users payload (with_like_users=True かつ
+        likes が増えた時のみ。初回は old=0 なので「増えた」扱い)
+      - ``new_retweets``: per-tweet retweeted_by payload (同上、retweet版)
+      - ``is_first``: True if this was the initial snapshot
 
-    First call only establishes the baseline (returns three empty lists).
+    X API は「いつ いいねしたか」を返さないので「24h で増えた数」を絞ることは
+    できない。初回は最新 N ツイートの **現在の** like_count/retweet_count を
+    「初回スナップショット時点の数」として返す (with_users=True なら誰がも
+    取得する。コストは普段のポーリングと同じく N ツイート分)。
     """
     from x_lib.credentials import load_credentials  # type: ignore
     from x_lib.client import (  # type: ignore
@@ -164,22 +186,16 @@ def detect_engagement(
 
     creds = load_credentials(persona_id)
     if creds is None:
-        return [], [], []
+        return [], [], [], False
 
     section = get_section(persona_id, "engagement")
     is_first = not bool(section)
     prev_metrics: Dict[str, Dict[str, int]] = section.get("tweet_metrics") or {}
 
-    try:
-        tweets = get_user_tweets(
-            creds.x_user_id, creds, max_results=tracked_recent_posts_count,
-        )
-    except XAPIError as exc:
-        LOGGER.warning(
-            "[XPolling] user_tweets API error for %s: %s (status %d)",
-            persona_id, exc.body, exc.status_code,
-        )
-        return [], [], []
+    # API エラーは raise する (誤った baseline 確立や初回フラグのロストを防ぐ)
+    tweets = get_user_tweets(
+        creds.x_user_id, creds, max_results=tracked_recent_posts_count,
+    )
 
     current_metrics: Dict[str, Dict[str, int]] = {}
     engagement_changes: List[Dict[str, Any]] = []
@@ -195,15 +211,20 @@ def detect_engagement(
         retweets = int(metrics.get("retweet_count") or 0)
         current_metrics[tid] = {"likes": likes, "retweets": retweets}
 
+        # 初回は old=0 として「現在の数を初回スナップショット」に。差分通知と同じ
+        # フォーマットで返すことで呼び出し側の処理を共通化できる。
         if is_first:
-            continue
-
-        prev = prev_metrics.get(tid) or {"likes": 0, "retweets": 0}
-        old_likes = int(prev.get("likes") or 0)
-        old_retweets = int(prev.get("retweets") or 0)
+            old_likes = 0
+            old_retweets = 0
+        else:
+            prev = prev_metrics.get(tid) or {"likes": 0, "retweets": 0}
+            old_likes = int(prev.get("likes") or 0)
+            old_retweets = int(prev.get("retweets") or 0)
 
         likes_grew = likes > old_likes
         retweets_grew = retweets > old_retweets
+        # 増分なし、かつ初回でもない: 何も通知しない
+        # 初回 + 0いいね 0リポスト: スキップ (ノイズ回避)
         if not (likes_grew or retweets_grew):
             continue
 
@@ -240,12 +261,11 @@ def detect_engagement(
 
     if is_first:
         LOGGER.info(
-            "[XPolling] First engagement snapshot for %s: %d tweets (baseline only)",
+            "[XPolling] First engagement snapshot for %s: %d tweets (returning current as initial)",
             persona_id, len(current_metrics),
         )
-        return [], [], []
 
-    return engagement_changes, new_likes, new_retweets
+    return engagement_changes, new_likes, new_retweets, is_first
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +300,10 @@ def poll_persona(persona_id: str) -> Optional[TriggerEvent]:
     """Run all enabled polling jobs for one persona and emit ≤1 event.
 
     Returns ``None`` when nothing was detected (or no jobs are enabled).
+    The event payload includes ``initial_categories``: the set of category
+    keys ("mentions", "followers", "engagement") that returned an initial
+    snapshot. The handler playbook uses this to prepend an "初回スナップ
+    ショット" announcement so the persona understands the timing.
     """
     from storage.poll_state import touch_last_polled  # type: ignore
 
@@ -290,38 +314,87 @@ def poll_persona(persona_id: str) -> Optional[TriggerEvent]:
     engagement_changes: List[Dict[str, Any]] = []
     new_likes: List[Dict[str, Any]] = []
     new_retweets: List[Dict[str, Any]] = []
+    initial_categories: Set[str] = set()
+    errors: Dict[str, str] = {}  # category -> error message。ペルソナへ通知される
 
+    # 各カテゴリ独立して try。片方の API エラーで全体停止せず、かつエラーは
+    # ``errors`` に集約してペルソナへ通知される (バックエンドログだけにしない)。
     if params.get("poll_mentions", True):
-        mentions = detect_mentions(
-            persona_id, max_results=int(params.get("mentions_max_results", 20)),
-        )
+        try:
+            mentions, m_first = detect_mentions(
+                persona_id, max_results=int(params.get("mentions_max_results", 20)),
+            )
+            if m_first:
+                initial_categories.add("mentions")
+        except Exception as exc:
+            LOGGER.error("[XPolling] mentions failed for %s: %s", persona_id, exc, exc_info=True)
+            errors["mentions"] = str(exc)
 
     if params.get("poll_followers", False):
-        new_followers = detect_new_followers(persona_id)
+        try:
+            new_followers, f_first = detect_new_followers(persona_id)
+            if f_first:
+                initial_categories.add("followers")
+        except Exception as exc:
+            LOGGER.error("[XPolling] followers failed for %s: %s", persona_id, exc, exc_info=True)
+            errors["followers"] = str(exc)
 
     needs_count = bool(params.get("poll_engagement_count", False))
     needs_like_users = bool(params.get("poll_likes_detail", False))
     needs_retweet_users = bool(params.get("poll_retweets_detail", False))
     if needs_count or needs_like_users or needs_retweet_users:
-        changes, likes_detail, retweets_detail = detect_engagement(
-            persona_id,
-            tracked_recent_posts_count=int(params.get("tracked_recent_posts_count", 5)),
-            with_like_users=needs_like_users,
-            with_retweet_users=needs_retweet_users,
-        )
-        if needs_count:
-            engagement_changes = changes
-        if needs_like_users:
-            new_likes = likes_detail
-        if needs_retweet_users:
-            new_retweets = retweets_detail
+        try:
+            changes, likes_detail, retweets_detail, e_first = detect_engagement(
+                persona_id,
+                tracked_recent_posts_count=int(params.get("tracked_recent_posts_count", 5)),
+                with_like_users=needs_like_users,
+                with_retweet_users=needs_retweet_users,
+            )
+            if needs_count:
+                engagement_changes = changes
+            if needs_like_users:
+                new_likes = likes_detail
+            if needs_retweet_users:
+                new_retweets = retweets_detail
+            if e_first:
+                initial_categories.add("engagement")
+        except Exception as exc:
+            LOGGER.error("[XPolling] engagement failed for %s: %s", persona_id, exc, exc_info=True)
+            errors["engagement"] = str(exc)
 
-    touch_last_polled(persona_id, time.time())
+    # last_polled は **エラーが無かった時のみ** 更新。エラー時に時刻を進めると、
+    # 次の polling_interval_seconds (デフォルト 24h) まで再試行されず、エラー原因
+    # 解消後も復旧が遅れる。エラーカテゴリがあれば次の tick で即リトライさせる。
+    if not errors:
+        touch_last_polled(persona_id, time.time())
 
-    if not (mentions or new_followers or engagement_changes or new_likes or new_retweets):
+    # データもエラーも何もない時のみ event 抑制 (= 通常の "no new data")。
+    # エラーがあれば必ずペルソナに通知 event を出す。
+    if not (mentions or new_followers or engagement_changes or new_likes or new_retweets or errors):
         return None
 
     summary = _build_summary(mentions, new_followers, engagement_changes)
+    if initial_categories:
+        summary = f"[初回スナップショット: {','.join(sorted(initial_categories))}] " + summary
+    if errors:
+        summary = f"[エラー: {','.join(sorted(errors.keys()))}] " + summary
+
+    # アナウンス文は polling 側で pre-render する。空の時は空文字列にして
+    # playbook 側で固定文言を毎回流さない (トークン節約)。
+    errors_announcement = ""
+    if errors:
+        errors_announcement = (
+            f"\n\n⚠ エラーが起きたカテゴリ: {errors} "
+            "(取得失敗。OAuth再認可・scope不足・rate limit等の可能性。"
+            "errorsに含まれるカテゴリのデータは今回ゼロ件として扱われているため信頼しないこと。"
+            "ユーザーに状況を伝えるか、設定見直しを促すこと)"
+        )
+    initial_announcement = ""
+    if initial_categories:
+        initial_announcement = (
+            f"\n\n初回スナップショットを含むカテゴリ: {sorted(initial_categories)} "
+            "(記載カテゴリは「前回からの増分ではない」点に注意。次回以降は差分のみ通知)"
+        )
 
     playbook_args = {"selected_playbook": "x_poll_handler", "summary": summary}
 
@@ -335,6 +408,10 @@ def poll_persona(persona_id: str) -> Optional[TriggerEvent]:
             "engagement_changes": engagement_changes,
             "new_likes": new_likes,
             "new_retweets": new_retweets,
+            "initial_categories": sorted(initial_categories),
+            "errors": errors,
+            "errors_announcement": errors_announcement,
+            "initial_announcement": initial_announcement,
             "args_json": json.dumps(playbook_args, ensure_ascii=False),
         },
     )

@@ -209,11 +209,15 @@ def read_mentions(
     creds: XCredentials,
     max_results: int = 10,
     since_id: Optional[str] = None,
+    start_time: Optional[str] = None,
 ) -> List[dict]:
     """Read mentions. Returns list of tweet dicts.
 
     Args:
         since_id: If provided, only return mentions newer than this tweet ID.
+        start_time: ISO 8601 (UTC, e.g. "2026-04-26T12:00:00Z"). Returns mentions
+            on or after this time. Mutually exclusive with ``since_id`` (since_id
+            wins if both passed). Used for the initial 24h backfill on first call.
     """
     params: Dict[str, Any] = {
         "max_results": min(max(max_results, 5), 100),
@@ -224,6 +228,8 @@ def read_mentions(
     }
     if since_id:
         params["since_id"] = since_id
+    elif start_time:
+        params["start_time"] = start_time
     resp = _make_request(
         "GET",
         f"{_X_API_BASE}/users/{creds.x_user_id}/mentions",
@@ -428,21 +434,20 @@ def get_followers(
 
 
 def get_all_followers(target_user_id: str, creds: XCredentials) -> List[dict]:
-    """Fetch the entire follower list of ``target_user_id`` (auto-paginates).
+    """Fetch the most-recent 1 page of ``target_user_id``'s followers (max 1000).
 
-    Beware: each page costs $0.010/user (Non-Owned Read). For large accounts
-    this can become expensive; the caller should decide when to invoke this.
+    **Cost**: each follower returned costs $0.010 (Non-Owned Read). 25 followers
+    = $0.25, 1000 followers = $10. Pagination intentionally NOT performed even
+    if a next_token exists, since a persona with > 1000 followers would generate
+    a single call costing tens of dollars and is rare for AI persona accounts.
+
+    The X API returns followers in reverse chronological order, so the most
+    recent followers are always included in the first page. Diff detection
+    against ``known_follower_ids`` may miss followers who fall off page 1
+    between two polls (only matters for accounts ≥ 1000 followers).
     """
-    followers: List[dict] = []
-    next_token: Optional[str] = None
-    while True:
-        page = get_followers(target_user_id, creds, max_results=1000, pagination_token=next_token)
-        page_data = page.get("data") or []
-        followers.extend(page_data)
-        next_token = (page.get("meta") or {}).get("next_token")
-        if not next_token:
-            break
-    return followers
+    page = get_followers(target_user_id, creds, max_results=1000, pagination_token=None)
+    return page.get("data") or []
 
 
 # ---------------------------------------------------------------------------

@@ -4,12 +4,16 @@
     "description": "X定期ポーリング(メンション・新規フォロワー・被いいね・被リポスト)の検出結果をペルソナに通知する。具体的な対応(返信・いいね返し等)はペルソナがスペルで自由判断する。",
     "input_schema": [
         {"name": "input",                "description": "未使用(汎用入力)"},
-        {"name": "summary",              "description": "検出内容の人間可読サマリ"},
-        {"name": "mentions",             "description": "メンションのリスト(各要素: id, text, author_username, author_name, created_at)"},
-        {"name": "new_followers",        "description": "新規フォロワーのリスト(各要素: id, username, name)"},
-        {"name": "engagement_changes",   "description": "いいね/リポスト件数の差分リスト"},
+        {"name": "summary",              "description": "検出内容の人間可読サマリ。初回時は冒頭に [初回スナップショット: ...] が付く"},
+        {"name": "mentions",             "description": "メンションのリスト(各要素: id, text, author_username, author_name, created_at)。初回は直近24時間分"},
+        {"name": "new_followers",        "description": "新規フォロワーのリスト(各要素: id, username, name)。初回は現在の全フォロワー"},
+        {"name": "engagement_changes",   "description": "いいね/リポスト件数の差分リスト。初回は old=0 (現在数を初回スナップショット表示)"},
         {"name": "new_likes",            "description": "詳細: いいねした人のリスト(poll_likes_detail有効時のみ)"},
-        {"name": "new_retweets",         "description": "詳細: リポストした人のリスト(poll_retweets_detail有効時のみ)"}
+        {"name": "new_retweets",         "description": "詳細: リポストした人のリスト(poll_retweets_detail有効時のみ)"},
+        {"name": "initial_categories",   "description": "初回スナップショットだったカテゴリ('mentions'/'followers'/'engagement')のリスト。空なら通常の差分通知"},
+        {"name": "errors",               "description": "エラーが起きたカテゴリ→エラーメッセージのdict。空でなければペルソナが対処する必要がある(OAuth再認可・scope不足・rate limit等)"},
+        {"name": "errors_announcement",  "description": "エラーアナウンス文(polling側でpre-render済み、空なら何も埋まらない)"},
+        {"name": "initial_announcement", "description": "初回スナップショットアナウンス文(polling側でpre-render済み、空なら何も埋まらない)"}
     ],
     "router_callable": false,
     "user_selectable": false,
@@ -19,7 +23,7 @@
         {
             "id": "notify",
             "type": "memorize",
-            "action": "<system>[X定期ポーリング通知] {summary}\n\n=== 詳細データ ===\nメンション: {mentions}\n新規フォロワー: {new_followers}\nいいね/リポスト件数差分: {engagement_changes}\nいいねした人(詳細): {new_likes}\nリポストした人(詳細): {new_retweets}\n\n対応はあなたの自由判断です。返信したいメンションがあれば x_reply_tweet で個別に応答してください。新しいフォロワーへのお礼や、いいねへの反応も任意です。スルーしたい項目はスルーして構いません。\n\n関連スペル: x_reply_tweet / x_like_tweet / x_retweet / x_post_tweet / x_check_mentions / x_check_new_followers / x_check_post_likes / x_check_post_retweets / x_get_user / x_get_user_tweets</system>",
+            "action": "<system>[X定期ポーリング通知] {summary}{errors_announcement}{initial_announcement}\n\n=== 詳細データ ===\nメンション: {mentions}\n新規フォロワー: {new_followers}\nいいね/リポスト件数差分: {engagement_changes}\nいいねした人(詳細): {new_likes}\nリポストした人(詳細): {new_retweets}\n\n対応はあなたの自由判断です。返信したいメンションがあれば x_reply_tweet で個別に応答してください。新しいフォロワーへのお礼や、いいねへの反応も任意です。スルーしたい項目はスルーして構いません。\n\n関連スペル: x_reply_tweet / x_like_tweet / x_retweet / x_post_tweet / x_check_mentions / x_check_new_followers / x_check_post_likes / x_check_post_retweets / x_get_user / x_get_user_tweets</system>",
             "role": "user",
             "tags": ["x_polling", "notification"],
             "next": null

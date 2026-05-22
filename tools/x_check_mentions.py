@@ -33,15 +33,31 @@ def x_check_mentions(max_results: int = 20) -> Tuple[str, ToolResult]:
         return "[Xメンション確認エラー] ペルソナコンテキストが設定されていません。", ToolResult(history_snippet=None)
 
     try:
-        mentions = detect_mentions(persona_id, max_results=max_results)
+        mentions, is_first = detect_mentions(persona_id, max_results=max_results)
     except Exception as exc:
         LOGGER.error("[x_check_mentions] Unexpected error: %s", exc, exc_info=True)
         return f"[Xメンション確認エラー] {exc}", ToolResult(history_snippet=None)
 
-    if not mentions:
-        return "前回以降の新しいメンションはありません。", ToolResult(history_snippet="[Xメンション確認] 0件")
+    # 初回スナップショット時のアナウンス文 (cursor 不在 → 24h backfill)
+    intro = ""
+    if is_first:
+        intro = (
+            "[初回スナップショット] 直近24時間のメンションを取得します。"
+            "次回以降は前回確認以降の新着分のみを取得します。\n"
+        )
 
-    lines = [f"前回以降の新しいメンション({len(mentions)}件):"]
+    if not mentions:
+        body = (
+            "直近24時間に新しいメンションはありません。"
+            if is_first else "前回以降の新しいメンションはありません。"
+        )
+        return intro + body, ToolResult(history_snippet="[Xメンション確認] 0件")
+
+    header = (
+        f"直近24時間のメンション({len(mentions)}件):"
+        if is_first else f"前回以降の新しいメンション({len(mentions)}件):"
+    )
+    lines = [header]
     for m in mentions:
         username = m.get("author_username", "")
         name = m.get("author_name", "")
@@ -50,7 +66,7 @@ def x_check_mentions(max_results: int = 20) -> Tuple[str, ToolResult]:
         tid = m.get("id", "")
         lines.append(f"- @{username} ({name}) [{created}] (id={tid}): {text}")
 
-    return "\n".join(lines), ToolResult(history_snippet=f"[Xメンション確認] {len(mentions)}件")
+    return intro + "\n".join(lines), ToolResult(history_snippet=f"[Xメンション確認] {len(mentions)}件")
 
 
 def schema() -> ToolSchema:
