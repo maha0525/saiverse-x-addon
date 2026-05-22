@@ -96,8 +96,8 @@ SAIVerse のペルソナを X (Twitter) に接続し、投稿・取得・反応�
 
 - **資格情報の保存先**: 旧ファイルベース (`~/.saiverse/personas/<id>/x_credentials.json`) は廃止。`AddonPersonaConfig` テーブルに OAuth トークン (`x_access_token` / `x_refresh_token` / `x_token_expires_at` / `x_user_id` / `x_username`) を保存
 - **トークンリフレッシュ**: Pull 型。`x_lib/credentials.load_credentials(persona_id)` 呼び出し時に期限切れなら `saiverse.oauth.handler.get_valid_token()` 経由で自動リフレッシュ
-- **ポーリング状態**: `~/.saiverse/addons/saiverse-x-addon/poll_state/<persona_id>.json` (mentions の since_id、followers の known_ids、engagement の tweet_metrics スナップショット)
-- **重複リプライ防止**: `~/.saiverse/addons/saiverse-x-addon/x_reply_log.db` (UNIQUE 制約)
+- **ポーリング状態**: `~/.saiverse/user_data/addon_data/saiverse-x-addon/poll_state/<persona_id>.json` (mentions の since_id、followers の known_ids、engagement の tweet_metrics スナップショット)
+- **重複リプライ防止**: `~/.saiverse/user_data/addon_data/saiverse-x-addon/x_reply_log.db` (UNIQUE 制約)
 - **MCP サーバー連携**: なし。すべてネイティブ Python 実装
 
 ## トラブルシュート

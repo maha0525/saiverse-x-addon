@@ -1,6 +1,6 @@
 """X reply de-duplication log (addon-private SQLite).
 
-Stored at ``~/.saiverse/addons/saiverse-x-addon/x_reply_log.db``.
+Stored at ``~/.saiverse/user_data/addon_data/saiverse-x-addon/x_reply_log.db``.
 
 X enforces strict reply rules ("one reply per source tweet" etc.) and the
 spec changes occasionally. Keeping this log on the addon side means future
@@ -74,9 +74,9 @@ def _ensure_engine():
         if _engine is not None:
             return _engine, _SessionLocal
 
-        from saiverse.addon_paths import get_addon_storage_path
+        from saiverse.addon_paths import get_addon_data_dir
 
-        storage_dir = get_addon_storage_path(ADDON_NAME)
+        storage_dir = get_addon_data_dir(ADDON_NAME)
         db_path = storage_dir / _DB_FILENAME
         url = f"sqlite:///{db_path}"
 

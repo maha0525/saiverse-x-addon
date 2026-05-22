@@ -7,7 +7,7 @@ the updated section back, which guarantees no double-notification
 across both code paths.
 
 Layout (one JSON file per persona):
-    ~/.saiverse/addons/saiverse-x-addon/poll_state/<persona_id>.json
+    ~/.saiverse/user_data/addon_data/saiverse-x-addon/poll_state/<persona_id>.json
 
     {
       "mentions":   {"last_seen_id": "1700..."},
@@ -34,9 +34,9 @@ _locks_guard = threading.Lock()
 
 
 def _state_dir() -> Path:
-    from saiverse.addon_paths import get_addon_storage_path
+    from saiverse.addon_paths import get_addon_data_dir
 
-    base = get_addon_storage_path(ADDON_NAME) / "poll_state"
+    base = get_addon_data_dir(ADDON_NAME) / "poll_state"
     base.mkdir(parents=True, exist_ok=True)
     return base
 

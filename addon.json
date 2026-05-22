@@ -3,7 +3,13 @@
     "display_name": "X (Twitter) 連携",
     "description": "ペルソナを X (Twitter) アカウントに接続し、投稿・タイムライン閲覧・リプライ・メンション通知を可能にします。X Developer Portal で OAuth 2.0 アプリを作成し、Client ID / Client Secret を設定してください。",
     "spell_description": "X (Twitter) に接続されています。タイムラインの閲覧やツイートの投稿ができます。",
-    "version": "0.1.0",
+    "version": "0.2.0",
+    "manifest_version": 2,
+    "setup_version": 1,
+    "data_subdirs": {
+        "poll_state": "ペルソナごとのポーリングカーソル (mentions の since_id 等)",
+        "x_reply_log.db": "重複リプライ防止用 SQLite (tweet_id UNIQUE 制約)"
+    },
     "params_schema": [
         {
             "key": "client_id",
