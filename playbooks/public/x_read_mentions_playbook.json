@@ -1,7 +1,13 @@
 {
     "name": "x_read_mentions",
-    "display_name": "Xメンション確認",
-    "description": "X（Twitter）のメンション（自分宛てのツイート）を取得し、記憶に保存する。",
+    "display_name": {
+        "ja": "Xメンション確認",
+        "en": "Check X Mentions"
+    },
+    "description": {
+        "ja": "X（Twitter）のメンション（自分宛てのツイート）を取得し、記憶に保存する。",
+        "en": "Fetch mentions on X (Twitter) and save them to memory."
+    },
     "input_schema": [
         {
             "name": "input",

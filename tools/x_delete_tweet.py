@@ -4,18 +4,12 @@ from __future__ import annotations
 
 import logging
 import sys
-import threading
-import uuid
 from pathlib import Path
 from typing import Tuple
 
+from tools.confirmation import request_spell_confirmation
 from tools.core import ToolResult, ToolSchema
-from tools.context import (
-    get_active_persona_id,
-    get_active_manager,
-    get_auto_mode,
-    get_event_callback,
-)
+from tools.context import get_active_persona_id
 
 LOGGER = logging.getLogger(__name__)
 
@@ -29,7 +23,8 @@ def x_delete_tweet(tweet_id: str) -> Tuple[str, ToolResult]:
 
     Deletion is irreversible — the ``skip_confirmation`` setting deliberately
     does NOT bypass this dialog. Auto-mode (no user attached) does skip it
-    so that automation can complete; pair with strict tool gating instead.
+    (handled inside request_spell_confirmation) so automation can complete;
+    pair with strict tool gating instead.
     """
     from x_lib.credentials import load_credentials
     from x_lib.client import delete_tweet, XAPIError
@@ -42,38 +37,18 @@ def x_delete_tweet(tweet_id: str) -> Tuple[str, ToolResult]:
     if not creds:
         return "[X削除エラー] X連携が設定されていません。", ToolResult(history_snippet=None)
 
-    auto_mode = get_auto_mode()
-    if not auto_mode:
-        event_callback = get_event_callback()
-        manager = get_active_manager()
-
-        if event_callback and manager:
-            request_id = str(uuid.uuid4())
-            event = threading.Event()
-            manager._pending_tweet_confirmations[request_id] = event
-
-            LOGGER.info("[x_delete_tweet] Requesting delete confirmation (request_id=%s)", request_id)
-            event_callback({
-                "type": "tweet_confirmation",
-                "request_id": request_id,
-                "tweet_text": f"[ツイート削除] ID: {tweet_id}",
-                "persona_id": persona_id,
-                "x_username": creds.x_username,
-                "is_delete": True,
-                "tweet_id": tweet_id,
-            })
-
-            responded = event.wait(timeout=120)
-            manager._pending_tweet_confirmations.pop(request_id, None)
-            response = manager._tweet_confirmation_responses.pop(request_id, None)
-
-            if not responded or response is None:
-                LOGGER.info("[x_delete_tweet] Confirmation timed out")
-                return "[X削除] 確認がタイムアウトしました。削除はキャンセルされました。", ToolResult(history_snippet=None)
-
-            if response == "reject":
-                LOGGER.info("[x_delete_tweet] User rejected delete")
-                return "[X削除] ユーザーが削除を拒否しました。", ToolResult(history_snippet=None)
+    # Always confirm (skip_confirmation intentionally NOT honored for delete).
+    confirm = request_spell_confirmation(
+        title="X ツイート削除の確認",
+        body=f"ツイート(ID: {tweet_id})を削除します。削除は取り消せません。",
+        editable=False,
+        addon="X (Twitter)",
+        confirm_text="削除する",
+    )
+    if not confirm.approved:
+        reason = "拒否" if confirm.reason == "rejected" else "タイムアウト"
+        LOGGER.info("[x_delete_tweet] confirmation not approved (%s)", confirm.reason)
+        return f"[X削除] 削除はキャンセルされました（{reason}）。", ToolResult(history_snippet=None)
 
     try:
         delete_tweet(tweet_id, creds)
@@ -99,7 +74,7 @@ def schema() -> ToolSchema:
         parameters={
             "type": "object",
             "properties": {
-                "tweet_id": {"type": "string", "description": "削除する自分のツイートID"},
+                "tweet_id": {"type": "string", "description": "削除する自分のツイートID。タイムライン・検索・メンション等の結果に (id=...) として表示される数字"},
             },
             "required": ["tweet_id"],
         },

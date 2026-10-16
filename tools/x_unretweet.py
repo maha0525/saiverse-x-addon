@@ -58,7 +58,7 @@ def schema() -> ToolSchema:
             "properties": {
                 "source_tweet_id": {
                     "type": "string",
-                    "description": "解除したいリツイートの元ツイートID",
+                    "description": "解除したいリツイートの元ツイートID。タイムライン・検索・メンション等の結果に (id=...) として表示される数字",
                 },
             },
             "required": ["source_tweet_id"],

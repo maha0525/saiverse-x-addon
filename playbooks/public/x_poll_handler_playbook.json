@@ -1,7 +1,13 @@
 {
     "name": "x_poll_handler",
-    "display_name": "X定期ポーリング通知ハンドラ",
-    "description": "X定期ポーリング(メンション・新規フォロワー・被いいね・被リポスト)の検出結果をペルソナに通知する。具体的な対応(返信・いいね返し等)はペルソナがスペルで自由判断する。",
+    "display_name": {
+        "ja": "X定期ポーリング通知ハンドラ",
+        "en": "X Periodic Polling Handler"
+    },
+    "description": {
+        "ja": "X定期ポーリング(メンション・新規フォロワー・被いいね・被リポスト)の検出結果をペルソナに通知する。具体的な対応(返信・いいね返し等)はペルソナがスペルで自由判断する。",
+        "en": "Notifies personas of detected events from X periodic polling (mentions, new followers, likes, retweets). Concrete responses are handled via spells."
+    },
     "input_schema": [
         {"name": "input",                "description": "未使用(汎用入力)"},
         {"name": "summary",              "description": "検出内容の人間可読サマリ。初回時は冒頭に [初回スナップショット: ...] が付く"},

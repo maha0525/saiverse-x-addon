@@ -54,7 +54,8 @@ def x_search_tweets(query: str, max_results: int = 10) -> Tuple[str, ToolResult]
         metrics = t.get("metrics", {})
         likes = metrics.get("like_count", 0)
         rts = metrics.get("retweet_count", 0)
-        line = f"- @{username} ({name}) [{created}] ♥{likes} 🔁{rts}: {text}"
+        tid = t.get("id", "")
+        line = f"- @{username} ({name}) [{created}] (id={tid}) ♥{likes} 🔁{rts}: {text}"
         for m in t.get("media", []):
             line += f"\n  [{m.get('type', 'media')}] {m['url']}"
         lines.append(line)

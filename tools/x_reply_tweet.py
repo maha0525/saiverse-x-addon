@@ -8,18 +8,12 @@ from __future__ import annotations
 
 import logging
 import sys
-import threading
-import uuid
 from pathlib import Path
 from typing import Tuple
 
+from tools.confirmation import request_spell_confirmation
 from tools.core import ToolResult, ToolSchema
-from tools.context import (
-    get_active_persona_id,
-    get_active_manager,
-    get_auto_mode,
-    get_event_callback,
-)
+from tools.context import get_active_persona_id
 
 LOGGER = logging.getLogger(__name__)
 
@@ -72,47 +66,24 @@ def x_reply_tweet(text: str, in_reply_to_tweet_id: str) -> Tuple[str, ToolResult
             ToolResult(history_snippet=None),
         )
 
-    # --- Confirmation flow ---
-    auto_mode = get_auto_mode()
-    if not creds.skip_confirmation and not auto_mode:
-        event_callback = get_event_callback()
-        manager = get_active_manager()
-
-        if event_callback and manager:
-            request_id = str(uuid.uuid4())
-            event = threading.Event()
-            manager._pending_tweet_confirmations[request_id] = event
-
-            LOGGER.info("[x_reply_tweet] Requesting reply confirmation (request_id=%s)", request_id)
-            event_callback({
-                "type": "tweet_confirmation",
-                "request_id": request_id,
-                "tweet_text": text,
-                "persona_id": persona_id,
-                "x_username": creds.x_username,
-                "is_reply": True,
-                "in_reply_to_tweet_id": in_reply_to_tweet_id,
-            })
-
-            responded = event.wait(timeout=120)
-
-            # Cleanup
-            manager._pending_tweet_confirmations.pop(request_id, None)
-            response = manager._tweet_confirmation_responses.pop(request_id, None)
-
-            if not responded or response is None:
-                LOGGER.info("[x_reply_tweet] Confirmation timed out")
-                cancel_reply(reservation_id)
-                return "[Xリプライ] 確認がタイムアウトしました。リプライはキャンセルされました。", ToolResult(history_snippet=None)
-
-            if response == "reject":
-                LOGGER.info("[x_reply_tweet] User rejected reply")
-                cancel_reply(reservation_id)
-                return "[Xリプライ] ユーザーがリプライを拒否しました。", ToolResult(history_snippet=None)
-
-            if response.startswith("edit:"):
-                text = response[5:]
-                LOGGER.info("[x_reply_tweet] User edited reply text")
+    # --- Confirmation (generic spell confirmation; auto_mode handled inside) ---
+    if not creds.skip_confirmation:
+        confirm = request_spell_confirmation(
+            title="X リプライの確認",
+            body=f"@{creds.x_username} としてツイート(ID: {in_reply_to_tweet_id})に返信します。",
+            editable=True,
+            text=text,
+            addon="X (Twitter)",
+            confirm_text="リプライする",
+            max_chars=280,
+        )
+        if not confirm.approved:
+            cancel_reply(reservation_id)
+            reason = "拒否" if confirm.reason == "rejected" else "タイムアウト"
+            LOGGER.info("[x_reply_tweet] confirmation not approved (%s)", confirm.reason)
+            return f"[Xリプライ] リプライはキャンセルされました（{reason}）。", ToolResult(history_snippet=None)
+        if confirm.edited_text is not None:
+            text = confirm.edited_text
 
     # --- Post reply ---
     try:
@@ -158,7 +129,7 @@ def schema() -> ToolSchema:
                 },
                 "in_reply_to_tweet_id": {
                     "type": "string",
-                    "description": "返信先のツイートID",
+                    "description": "返信先のツイートID。タイムライン・検索・メンション等の結果に (id=...) として表示される数字",
                 },
             },
             "required": ["text", "in_reply_to_tweet_id"],

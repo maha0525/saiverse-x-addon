@@ -53,7 +53,7 @@ def schema() -> ToolSchema:
         parameters={
             "type": "object",
             "properties": {
-                "tweet_id": {"type": "string", "description": "いいね解除するツイートID"},
+                "tweet_id": {"type": "string", "description": "いいね解除するツイートID。タイムライン・検索・メンション等の結果に (id=...) として表示される数字"},
             },
             "required": ["tweet_id"],
         },

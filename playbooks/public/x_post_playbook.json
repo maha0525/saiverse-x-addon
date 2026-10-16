@@ -1,7 +1,13 @@
 {
     "name": "x_post",
-    "display_name": "Xにツイート",
-    "description": "X（Twitter）にツイートを投稿する。投稿前にユーザーの確認を求める。",
+    "display_name": {
+        "ja": "Xにツイート",
+        "en": "Post Tweet to X"
+    },
+    "description": {
+        "ja": "X（Twitter）にツイートを投稿する。投稿前にユーザーの確認を求める。",
+        "en": "Post a tweet to X (Twitter). Requires user confirmation before posting."
+    },
     "input_schema": [
         {
             "name": "input",

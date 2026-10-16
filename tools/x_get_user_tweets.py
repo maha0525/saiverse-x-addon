@@ -65,7 +65,8 @@ def x_get_user_tweets(
         metrics = t.get("metrics", {})
         likes = metrics.get("like_count", 0)
         rts = metrics.get("retweet_count", 0)
-        line = f"- [{created}] ♥{likes} 🔁{rts}: {text}"
+        tid = t.get("id", "")
+        line = f"- [{created}] (id={tid}) ♥{likes} 🔁{rts}: {text}"
         for m in t.get("media", []):
             line += f"\n  [{m.get('type', 'media')}] {m['url']}"
         lines.append(line)

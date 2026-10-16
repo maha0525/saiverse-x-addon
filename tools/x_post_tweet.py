@@ -4,18 +4,12 @@ from __future__ import annotations
 
 import logging
 import sys
-import threading
-import uuid
 from pathlib import Path
 from typing import Tuple
 
+from tools.confirmation import request_spell_confirmation
 from tools.core import ToolResult, ToolSchema
-from tools.context import (
-    get_active_persona_id,
-    get_active_manager,
-    get_auto_mode,
-    get_event_callback,
-)
+from tools.context import get_active_persona_id
 
 LOGGER = logging.getLogger(__name__)
 
@@ -47,43 +41,23 @@ def x_post_tweet(text: str) -> Tuple[str, ToolResult]:
             ToolResult(history_snippet=None),
         )
 
-    # --- Confirmation flow ---
-    auto_mode = get_auto_mode()
-    if not creds.skip_confirmation and not auto_mode:
-        event_callback = get_event_callback()
-        manager = get_active_manager()
-
-        if event_callback and manager:
-            request_id = str(uuid.uuid4())
-            event = threading.Event()
-            manager._pending_tweet_confirmations[request_id] = event
-
-            LOGGER.info("[x_post_tweet] Requesting tweet confirmation (request_id=%s)", request_id)
-            event_callback({
-                "type": "tweet_confirmation",
-                "request_id": request_id,
-                "tweet_text": text,
-                "persona_id": persona_id,
-                "x_username": creds.x_username,
-            })
-
-            responded = event.wait(timeout=120)
-
-            # Cleanup
-            manager._pending_tweet_confirmations.pop(request_id, None)
-            response = manager._tweet_confirmation_responses.pop(request_id, None)
-
-            if not responded or response is None:
-                LOGGER.info("[x_post_tweet] Confirmation timed out")
-                return "[X投稿] 確認がタイムアウトしました。投稿はキャンセルされました。", ToolResult(history_snippet=None)
-
-            if response == "reject":
-                LOGGER.info("[x_post_tweet] User rejected tweet")
-                return "[X投稿] ユーザーが投稿を拒否しました。", ToolResult(history_snippet=None)
-
-            if response.startswith("edit:"):
-                text = response[5:]
-                LOGGER.info("[x_post_tweet] User edited tweet text")
+    # --- Confirmation (generic spell confirmation; auto_mode handled inside) ---
+    if not creds.skip_confirmation:
+        confirm = request_spell_confirmation(
+            title="X 投稿の確認",
+            body=f"@{creds.x_username} として投稿します。",
+            editable=True,
+            text=text,
+            addon="X (Twitter)",
+            confirm_text="投稿する",
+            max_chars=280,
+        )
+        if not confirm.approved:
+            reason = "拒否" if confirm.reason == "rejected" else "タイムアウト"
+            LOGGER.info("[x_post_tweet] confirmation not approved (%s)", confirm.reason)
+            return f"[X投稿] 投稿はキャンセルされました（{reason}）。", ToolResult(history_snippet=None)
+        if confirm.edited_text is not None:
+            text = confirm.edited_text
 
     # --- Post tweet ---
     try:

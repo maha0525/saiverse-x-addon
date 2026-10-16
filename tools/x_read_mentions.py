@@ -51,7 +51,8 @@ def x_read_mentions(max_results: int = 10) -> Tuple[str, ToolResult]:
         username = t.get("author_username", "")
         text = t.get("text", "")
         created = t.get("created_at", "")
-        line = f"- @{username} ({name}) [{created}]: {text}"
+        tid = t.get("id", "")
+        line = f"- @{username} ({name}) [{created}] (id={tid}): {text}"
         for m in t.get("media", []):
             line += f"\n  [{m.get('type', 'media')}] {m['url']}"
         lines.append(line)
