@@ -29,8 +29,8 @@
         {
             "id": "notify",
             "type": "memorize",
-            "action": "<system>[X定期ポーリング通知] {summary}{errors_announcement}{initial_announcement}\n\n=== 詳細データ ===\nメンション: {mentions}\n新規フォロワー: {new_followers}\nいいね/リポスト件数差分: {engagement_changes}\nいいねした人(詳細): {new_likes}\nリポストした人(詳細): {new_retweets}\n\n対応はあなたの自由判断です。返信したいメンションがあれば x_reply_tweet で個別に応答してください。新しいフォロワーへのお礼や、いいねへの反応も任意です。スルーしたい項目はスルーして構いません。\n\n関連スペル: x_reply_tweet / x_like_tweet / x_retweet / x_post_tweet / x_check_mentions / x_check_new_followers / x_check_post_likes / x_check_post_retweets / x_get_user / x_get_user_tweets</system>",
-            "role": "user",
+            "action": "[X定期ポーリング通知] {summary}{errors_announcement}{initial_announcement}\n\n=== 詳細データ ===\nメンション: {mentions}\n新規フォロワー: {new_followers}\nいいね/リポスト件数差分: {engagement_changes}\nいいねした人(詳細): {new_likes}\nリポストした人(詳細): {new_retweets}\n\n対応はあなたの自由判断です。返信したいメンションがあれば x_reply_tweet で個別に応答してください。新しいフォロワーへのお礼や、いいねへの反応も任意です。スルーしたい項目はスルーして構いません。\n\n関連スペル: x_reply_tweet / x_like_tweet / x_retweet / x_post_tweet / x_check_mentions / x_check_new_followers / x_check_post_likes / x_check_post_retweets / x_get_user / x_get_user_tweets",
+            "role": "system",
             "tags": ["x_polling", "notification"],
             "next": null
         }

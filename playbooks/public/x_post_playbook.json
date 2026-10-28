@@ -51,9 +51,9 @@
         {
             "id": "record",
             "type": "memorize",
-            "action": "<system>{last}</system>",
-            "role": "user",
-            "tags": ["conversation", "x_post", "playbook_result"],
+            "action": "{last}",
+            "role": "system",
+            "tags": ["x_post", "playbook_result"],
             "next": null
         }
     ],

@@ -9,7 +9,7 @@
         "en": "Connects personas to X (Twitter) accounts for posting, browsing timelines, replying, and receiving mention notifications. Create an OAuth 2.0 App on X Developer Portal and configure your Client ID and Client Secret."
     },
     "spell_description": "X (Twitter) に接続されています。タイムラインの閲覧やツイートの投稿ができます。",
-    "version": "0.2.1",
+    "version": "0.3.0",
     "manifest_version": 2,
     "setup_version": 1,
     "data_subdirs": {
