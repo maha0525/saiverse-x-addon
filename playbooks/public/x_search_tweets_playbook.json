@@ -57,8 +57,8 @@
             "id": "record",
             "type": "memorize",
             "action": "Xツイート検索結果:\n{last}",
-            "role": "user",
-            "tags": ["conversation", "x_search", "playbook_result"],
+            "role": "system",
+            "tags": ["x_search", "playbook_result"],
             "next": null
         }
     ],
