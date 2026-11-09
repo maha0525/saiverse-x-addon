@@ -29,7 +29,12 @@ LOGGER = logging.getLogger(__name__)
 
 ADDON_NAME = "saiverse-x-addon"
 
-_locks: Dict[str, threading.Lock] = {}
+# Per-persona locks must be re-entrant: update_section() and
+# touch_last_polled() hold the lock while calling save_state() / load_state(),
+# which take the same lock again. A plain Lock deadlocks the calling thread
+# forever (and, when called from a spell, keeps the persona's Beat lock held
+# so the persona stops responding until restart).
+_locks: Dict[str, threading.RLock] = {}
 _locks_guard = threading.Lock()
 
 
@@ -45,11 +50,11 @@ def _state_file(persona_id: str) -> Path:
     return _state_dir() / f"{persona_id}.json"
 
 
-def _persona_lock(persona_id: str) -> threading.Lock:
+def _persona_lock(persona_id: str) -> threading.RLock:
     with _locks_guard:
         lock = _locks.get(persona_id)
         if lock is None:
-            lock = threading.Lock()
+            lock = threading.RLock()
             _locks[persona_id] = lock
         return lock
 
